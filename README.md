@@ -24,6 +24,42 @@ The purpose of this project is to replace Alsa with Pulseaudio in Jibri, to be
 able to run it within a container without any specific configuration on the
 host.
 
+## Getting Started
+
+The following instructions are meant to compile and run the Jibri docker image on your
+workstation, with a fully functionning jitsi-meet stack.
+
+### Requirements
+
+  - Add the following entry to your `/etc/hosts`: `127.0.0.1	meet.jitsi`
+  - docker should be able to bind the port `443` on your workstation
+
+(Improvements are welcome here!)
+
+### Instructions
+
+**Initialize the project**
+ - Clone the git repository
+ - `make bootstrap`
+
+**Launch the services**
+ - `make run`
+
+Note that a volume is mounted outside of the project directory to store persistent data for jitsi services. (By default: `~/.jitsi-meet-cfg`.  It can be customized with the `CONFIG` setting in the `.env` file).
+
+**Start a meeting and record it**
+ - Open [https://meet.jitsi/](https://meet.jitsi/) on your browser and accept the certificate if needed
+ - Start a recording with the jitsi-meet interface
+
+You can watch `Jibri`'s logs with `make logs`.
+
+When the recording is stopped, you'll find your recordings in `~/.jitsi-meet-cfg/jibri/recordings/`.
+
+You can customize the Jitsi instance by editing the `.env` file.
+
+You can list available commands with `make help`.
+
+
 ## Credits
 
 This project benefits from the work of:
