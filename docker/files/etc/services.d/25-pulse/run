@@ -1,0 +1,6 @@
+#!/usr/bin/with-contenv bash
+
+HOME=/home/jibri
+
+DAEMON="/usr/bin/pulseaudio -vvv --log-target=file:/tmp/pulse.log --exit-idle-time=-1"
+exec s6-setuidgid jibri /bin/bash -c "exec $DAEMON"
