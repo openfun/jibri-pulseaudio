@@ -1,0 +1,197 @@
+version: 2
+jobs:
+  # Git jobs
+  # Check that the git history is clean and complies with our expectations
+  lint-git:
+    docker:
+      - image: circleci/python:3.8-buster
+    working_directory: ~/fun
+    steps:
+      - checkout
+      # Make sure the changes don't add a "print" statement to the code base.
+      # We should exclude the ".circleci" folder from the search as the very command that checks
+      # the absence of "print" is including a "print(" itself.
+      - run:
+          name: Check absence of fixup commits
+          command: |
+            ! git log | grep 'fixup!'
+      - run:
+          name: Install gitlint
+          command: |
+            pip install --user gitlint
+      - run:
+          name: lint commit messages added to main
+          command: |
+            ~/.local/bin/gitlint --commits origin/main..HEAD
+
+  # Check that the CHANGELOG has been updated in the current branch
+  check-changelog:
+    docker:
+      - image: circleci/buildpack-deps:stretch-scm
+    working_directory: ~/fun
+    steps:
+      - checkout
+      - run:
+          name: Check that the CHANGELOG has been modified in the current branch
+          command: |
+            git whatchanged --name-only --pretty="" origin..HEAD | grep CHANGELOG
+
+  # Check that the CHANGELOG max line length does not exceed 80 characters
+  lint-changelog:
+    docker:
+      - image: debian:stretch
+    working_directory: ~/fun
+    steps:
+      - checkout
+      - run:
+          name: Check CHANGELOG max line length
+          command: |
+            # Get the longuest line width (ignoring release links)
+            test $(cat CHANGELOG.md | grep -Ev "^\[.*\]: https://github.com/openfun" | wc -L) -le 80
+
+  # ---- Docker jobs ----
+  # Build the Docker image ready for production
+  build-image:
+    docker:
+      - image: circleci/buildpack-deps:stretch
+    working_directory: ~/fun
+    steps:
+      # Checkout repository sources
+      - checkout
+      # Activate docker-in-docker (with layers caching enabled)
+      - setup_remote_docker:
+          docker_layer_caching: true
+      # Each image is tagged with the current git commit sha1 to avoid collisions in parallel builds.
+      - run:
+          name: Generate a .env file to have a working docker-compose.yml
+          command: make .env
+      - run:
+          name: Build docker image
+          command: IMAGE_TAG="${CIRCLE_SHA1}" docker-compose build jibri
+      - run:
+          name: Check built image availability
+          command: docker images "jibri-pulseaudio:${CIRCLE_SHA1}*"
+
+  # ---- DockerHub publication job ----
+  hub:
+    docker:
+      - image: circleci/buildpack-deps:stretch
+    working_directory: ~/fun
+    steps:
+      # Checkout repository sources
+      - checkout
+      # Activate docker-in-docker (with layers caching enabled)
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: Generate a .env file to have a working docker-compose.yml
+          command: make .env
+      - run:
+          name: Build image (using cached layers)
+          command: IMAGE_TAG="${CIRCLE_SHA1}" docker-compose build jibri
+      - run:
+          name: Check built images availability
+          command: docker images "jibri-pulseaudio:${CIRCLE_SHA1}*"
+
+      # Login to DockerHub to Publish new images
+      #
+      # Nota bene: you'll need to define the following secrets environment vars
+      # in CircleCI interface:
+      #
+      #   - DOCKER_USER
+      #   - DOCKER_PASS
+      - run:
+          name: Login to DockerHub
+          command: echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+
+      # Tag docker images with the same pattern used in Git (Semantic Versioning)
+      #
+      # Git tag: v1.0.1
+      # Docker tag: 1.0.1(-ci)
+      - run:
+          name: Tag images
+          command: |
+            docker images fundocker/jibri-pulseaudio
+            DOCKER_TAG=$([[ -z "$CIRCLE_TAG" ]] && echo $CIRCLE_BRANCH || echo ${CIRCLE_TAG} | sed 's/^v//')
+            RELEASE_TYPE=$([[ -z "$CIRCLE_TAG" ]] && echo "branch" || echo "tag ")
+            # Display either:
+            # - DOCKER_TAG: main (Git branch)
+            # or
+            # - DOCKER_TAG: 1.1.2 (Git tag v1.1.2)
+            echo "DOCKER_TAG: ${DOCKER_TAG} (Git ${RELEASE_TYPE}${CIRCLE_TAG})"
+            docker tag jibri-pulseaudio:${CIRCLE_SHA1} fundocker/jibri-pulseaudio:${DOCKER_TAG}
+            if [[ -n "$CIRCLE_TAG" ]]; then
+                docker tag jibri-pulseaudio:${CIRCLE_SHA1} fundocker/jibri-pulseaudio:latest
+            fi
+            docker images | grep -E "^fundocker/jibri-pulseaudio\s*(${DOCKER_TAG}.*|latest|main)"
+
+      # Publish images to DockerHub
+      #
+      # Nota bene: logged user (see "Login to DockerHub" step) must have write
+      # permission for the project's repository; this also implies that the
+      # DockerHub repository already exists.
+      - run:
+          name: Publish images
+          command: |
+            DOCKER_TAG=$([[ -z "$CIRCLE_TAG" ]] && echo $CIRCLE_BRANCH || echo ${CIRCLE_TAG} | sed 's/^v//')
+            RELEASE_TYPE=$([[ -z "$CIRCLE_TAG" ]] && echo "branch" || echo "tag ")
+            # Display either:
+            # - DOCKER_TAG: main (Git branch)
+            # or
+            # - DOCKER_TAG: 1.1.2 (Git tag v1.1.2)
+            echo "DOCKER_TAG: ${DOCKER_TAG} (Git ${RELEASE_TYPE}${CIRCLE_TAG})"
+            docker push fundocker/jibri-pulseaudio:${DOCKER_TAG}
+            if [[ -n "$CIRCLE_TAG" ]]; then
+              docker push fundocker/jibri-pulseaudio:latest
+            fi
+
+
+workflows:
+  version: 2
+
+  jibri:
+    jobs:
+      # Git jobs
+      #
+      # Check validity of git history
+      - lint-git:
+          filters:
+            tags:
+              only: /.*/
+
+      # Check CHANGELOG update
+      - check-changelog:
+          filters:
+            branches:
+              ignore: main
+            tags:
+              only: /(?!^v).*/
+      - lint-changelog:
+          filters:
+            branches:
+              ignore: main
+            tags:
+              only: /.*/
+
+      # Docker jobs
+      #
+      # Build images
+      - build-image:
+          filters:
+            tags:
+              only: /.*/
+
+      # DockerHub publication.
+      #
+      # Publish docker images only if all build, lint and test jobs succeed
+      # and it has been tagged with a tag starting with the letter v or is on
+      # the main branch
+      - hub:
+          requires:
+            - build-image
+          filters:
+            branches:
+              only: main
+            tags:
+              only: /^v.*/
+
