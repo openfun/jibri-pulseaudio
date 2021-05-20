@@ -1,0 +1,14 @@
+#!/usr/bin/with-contenv bash
+
+# When jibri is shutdown (or gracefully shutdown), it exits with code 255.
+# In this case, we don't want S6 to restart the service. We want to stop all
+# services and shutdown the container.
+
+echo -n "Jibri exited with code $1. Action: " 1>&2
+
+if [[ $1 -eq 255 ]]; then
+  echo "shutting down all services." 1>&2
+  s6-svscanctl -t /var/run/s6/services
+else
+  echo "restarting." 1>&2
+fi
