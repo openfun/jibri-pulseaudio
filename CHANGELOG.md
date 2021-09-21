@@ -11,7 +11,7 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
  - Initial version of the `jibri-pulseaudio` docker image based on
-   `jitsi/jibri:stable-5765-1`
+   `jitsi/jibri:stable-6173`
  - Add possibility to shutdown jibri (eventually gracefully) and stop the
    container
  - Add JIBRI_NO_MEDIA_TIMEOUT, JIBRI_ALL_MUTED_TIMEOUT and
