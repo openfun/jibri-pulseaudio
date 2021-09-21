@@ -275,7 +275,7 @@ services:
       context: .
       args:
         BASE_IMAGE: jitsi/jibri
-        BASE_TAG: stable-5765-1
+        BASE_TAG: stable-6173
     image: "jibri-pulseaudio:${IMAGE_TAG:-dev}"
     cap_add:
       - SYS_ADMIN
